@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Signing credentials & Keystores (Must NEVER be committed)
+*.jks
+*.keystore
+keystore.properties
+
+.vscode/

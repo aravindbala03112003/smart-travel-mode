@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
@@ -15,9 +18,28 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePropertiesFile = rootProject.file("keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                val properties = Properties()
+                properties.load(FileInputStream(keystorePropertiesFile))
+                val keystorePath = properties.getProperty("storeFile") ?: "smarttravelmode-release.jks"
+                val storeF = rootProject.file(keystorePath)
+                if (storeF.exists()) {
+                    storeFile = storeF
+                    storePassword = properties.getProperty("storePassword")
+                    keyAlias = properties.getProperty("keyAlias")
+                    keyPassword = properties.getProperty("keyPassword")
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
