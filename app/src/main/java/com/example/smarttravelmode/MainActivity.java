@@ -262,41 +262,48 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
 
     // ---------- Boarding / Landing ----------
     private void sendBoarding() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String to = binding.familyNumberEdit.getText().toString().trim();
+        if (to.isEmpty()) to = prefs.getString(KEY_PHONE, "");
+
         String em = binding.emailEdit.getText().toString().trim();
-        boolean smsEnabled = binding.smsSwitch.isChecked();
-        boolean emailEnabled = binding.emailSwitch.isChecked();
+        if (em.isEmpty()) em = prefs.getString(KEY_EMAIL, "");
+
+        final String finalTo = to;
+        final String finalEm = em;
 
         executor.execute(() -> {
-            if (smsEnabled && !to.isEmpty()) {
-                safeSendSMS(to, "Boarding flight ✈️ – will be unreachable until landing.");
-            }
-            if (emailEnabled && !em.isEmpty()) {
-                sendEmail(em, "Boarding Flight", "I'm boarding now ✈️ and will contact after landing.");
-            }
+            fetchLocationAndDispatch(
+                    "Boarding flight ✈️ – will be unreachable until landing.",
+                    "Boarding Flight",
+                    finalTo,
+                    finalEm,
+                    false
+            );
         });
     }
 
     private void sendLanding() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String to = binding.familyNumberEdit.getText().toString().trim();
+        if (to.isEmpty()) to = prefs.getString(KEY_PHONE, "");
+
         String em = binding.emailEdit.getText().toString().trim();
-        boolean smsEnabled = binding.smsSwitch.isChecked();
-        boolean emailEnabled = binding.emailSwitch.isChecked();
-        boolean locEnabled = binding.locationSwitch.isChecked();
+        if (em.isEmpty()) em = prefs.getString(KEY_EMAIL, "");
+
+        final String finalTo = to;
+        final String finalEm = em;
 
         executor.execute(() -> {
             // Give modem time to reattach to network after airplane mode turns off
             try { Thread.sleep(7000); } catch (InterruptedException ignored) {}
-            if (locEnabled) {
-                runOnUiThread(() -> fetchLocationAndNotify(to, em, false));
-            } else {
-                if (smsEnabled && !to.isEmpty()) {
-                    safeSendSMS(to, "Landed safely 🛬");
-                }
-                if (emailEnabled && !em.isEmpty()) {
-                    sendEmail(em, "Landed Safely", "I have landed safely 🛬");
-                }
-            }
+            fetchLocationAndDispatch(
+                    "Landed safely 🛬",
+                    "Landed Safely",
+                    finalTo,
+                    finalEm,
+                    false
+            );
         });
     }
 
@@ -326,39 +333,36 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
         checkLocationSettingsPromptOnly();
     }
 
-    private void fetchLocationAndNotify(String phone, String email, boolean isTest) {
+    private void fetchLocationAndDispatch(String prefix, String subject, String phone, String email, boolean isTest) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
                 ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            String fallbackPrefix = isTest ? "Test Flight Notification 🧪" : "Landed safely 🛬";
-            dispatchNotifications(phone, email, fallbackPrefix, isTest);
+            dispatchNotifications(phone, email, subject, prefix);
             return;
         }
 
+        // Automatically fetch location without any manual human interaction
         LocationServices.getFusedLocationProviderClient(this)
                 .getLastLocation()
                 .addOnSuccessListener(loc -> {
                     if (loc != null) {
                         double lat = loc.getLatitude(), lon = loc.getLongitude();
-                        String prefix = isTest ? "Test Notification: Landed safely 🛬" : "Landed safely 🛬";
                         String msg = buildLocationMessage(prefix, lat, lon);
-                        showLocationInCard(lat, lon);
-                        dispatchNotifications(phone, email, msg, isTest);
+                        runOnUiThread(() -> showLocationInCard(lat, lon));
+                        dispatchNotifications(phone, email, subject, msg);
                     } else {
-                        // Attempt fresh location if cached location is null
-                        requestCurrentLocation(phone, email, isTest);
+                        // Request fresh location if cached location is null
+                        requestFreshLocationAndDispatch(prefix, subject, phone, email);
                     }
                 })
                 .addOnFailureListener(e -> {
-                    requestCurrentLocation(phone, email, isTest);
+                    requestFreshLocationAndDispatch(prefix, subject, phone, email);
                 });
     }
 
-    private void requestCurrentLocation(String phone, String email, boolean isTest) {
+    private void requestFreshLocationAndDispatch(String prefix, String subject, String phone, String email) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
                 ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            String fallback = isTest ? "Test notification (location unavailable)" : "Landed safely 🛬";
-            binding.locationText.setText("📍 unavailable");
-            dispatchNotifications(phone, email, fallback, isTest);
+            dispatchNotifications(phone, email, subject, prefix);
             return;
         }
 
@@ -369,28 +373,29 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
                     String msg;
                     if (loc != null) {
                         double lat = loc.getLatitude(), lon = loc.getLongitude();
-                        String prefix = isTest ? "Test Notification: Landed safely 🛬" : "Landed safely 🛬";
                         msg = buildLocationMessage(prefix, lat, lon);
-                        showLocationInCard(lat, lon);
+                        runOnUiThread(() -> showLocationInCard(lat, lon));
                     } else {
-                        msg = isTest ? "Test notification (location unavailable)" : "Landed safely 🛬";
-                        binding.locationText.setText("📍 unavailable");
+                        msg = prefix;
+                        runOnUiThread(() -> binding.locationText.setText("📍 unavailable"));
                     }
-                    dispatchNotifications(phone, email, msg, isTest);
+                    dispatchNotifications(phone, email, subject, msg);
                 })
                 .addOnFailureListener(e -> {
-                    String msg = isTest ? "Test notification (location unavailable)" : "Landed safely 🛬";
-                    binding.locationText.setText("📍 unavailable");
-                    dispatchNotifications(phone, email, msg, isTest);
+                    runOnUiThread(() -> binding.locationText.setText("📍 unavailable"));
+                    dispatchNotifications(phone, email, subject, prefix);
                 });
     }
 
-    private void dispatchNotifications(String phone, String email, String message, boolean isTest) {
-        String subject = isTest ? "Test Notification" : "Landed";
-        if (binding.smsSwitch.isChecked() && !phone.isEmpty()) {
+    private void dispatchNotifications(String phone, String email, String subject, String message) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean smsEnabled = binding.smsSwitch.isChecked() || prefs.getBoolean(KEY_SMS_ENABLED, true);
+        boolean emailEnabled = binding.emailSwitch.isChecked() || prefs.getBoolean(KEY_EMAIL_ENABLED, true);
+
+        if (smsEnabled && !phone.isEmpty()) {
             safeSendSMS(phone, message);
         }
-        if (binding.emailSwitch.isChecked() && !email.isEmpty()) {
+        if (emailEnabled && !email.isEmpty()) {
             sendEmail(email, subject, message);
         }
     }
@@ -442,9 +447,12 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
             emailIntent.setData(Uri.parse("mailto:" + Uri.encode(to)));
             emailIntent.putExtra(Intent.EXTRA_SUBJECT, subject);
             emailIntent.putExtra(Intent.EXTRA_TEXT, body);
+            emailIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             try {
-                startActivity(Intent.createChooser(emailIntent, "Send Email"));
+                Intent chooser = Intent.createChooser(emailIntent, "Send Email");
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(chooser);
             } catch (Exception e) {
                 // Fallback to generic ACTION_SEND if ACTION_SENDTO has no target
                 Intent genericIntent = new Intent(Intent.ACTION_SEND);
@@ -452,8 +460,11 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
                 genericIntent.putExtra(Intent.EXTRA_EMAIL, new String[]{to});
                 genericIntent.putExtra(Intent.EXTRA_SUBJECT, subject);
                 genericIntent.putExtra(Intent.EXTRA_TEXT, body);
+                genericIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    startActivity(Intent.createChooser(genericIntent, "Send Email"));
+                    Intent chooser = Intent.createChooser(genericIntent, "Send Email");
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(chooser);
                 } catch (Exception ex) {
                     Toast.makeText(this, "No email client found", Toast.LENGTH_SHORT).show();
                 }
@@ -462,10 +473,15 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
     }
 
     private void testNotifications() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String num = binding.familyNumberEdit.getText().toString().trim();
+        if (num.isEmpty()) num = prefs.getString(KEY_PHONE, "");
+
         String em = binding.emailEdit.getText().toString().trim();
-        boolean smsOn = binding.smsSwitch.isChecked();
-        boolean emailOn = binding.emailSwitch.isChecked();
+        if (em.isEmpty()) em = prefs.getString(KEY_EMAIL, "");
+
+        boolean smsOn = binding.smsSwitch.isChecked() || prefs.getBoolean(KEY_SMS_ENABLED, true);
+        boolean emailOn = binding.emailSwitch.isChecked() || prefs.getBoolean(KEY_EMAIL_ENABLED, true);
 
         if (!smsOn && !emailOn) {
             Toast.makeText(this, "Enable SMS or Email notification first", Toast.LENGTH_SHORT).show();
@@ -485,19 +501,15 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
         }
 
         saveSettings();
+        Toast.makeText(this, "Testing automatic notifications with location…", Toast.LENGTH_SHORT).show();
 
-        if (binding.locationSwitch.isChecked()) {
-            Toast.makeText(this, "Testing with location…", Toast.LENGTH_SHORT).show();
-            fetchLocationAndNotify(num, em, true);
-        } else {
-            if (smsOn && !num.isEmpty()) {
-                safeSendSMS(num, "Test SMS 📱 – Smart Travel Mode is configured.");
-            }
-            if (emailOn && !em.isEmpty()) {
-                sendEmail(em, "Test Email", "This is a test notification from Smart Travel Mode.");
-            }
-            Toast.makeText(this, "Test sent", Toast.LENGTH_SHORT).show();
-        }
+        fetchLocationAndDispatch(
+                "Test Flight Notification 🧪",
+                "Test Flight Notification",
+                num,
+                em,
+                true
+        );
     }
 
     @Override

@@ -73,6 +73,18 @@ public class SmartTravelUnitTest {
     }
 
     @Test
+    public void testBuildBoardingLocationMessage_containsCoordinates() {
+        double lat = 13.198635;
+        double lon = 77.706593;
+        String prefix = "Boarding flight ✈️ – will be unreachable until landing.";
+        String message = MainActivity.buildLocationMessage(prefix, lat, lon);
+
+        assertTrue("Message should contain boarding text", message.startsWith("Boarding flight ✈️"));
+        assertTrue("Message should contain departure coordinates", message.contains("Coordinates: 13.198635, 77.706593"));
+        assertTrue("Message should contain departure airport map link", message.contains("https://maps.google.com/?q=13.198635,77.706593"));
+    }
+
+    @Test
     public void testAirplaneModeReceiver_defaultConstructorExists() {
         // Required for manifest instantiation
         AirplaneModeReceiver receiver = new AirplaneModeReceiver();
