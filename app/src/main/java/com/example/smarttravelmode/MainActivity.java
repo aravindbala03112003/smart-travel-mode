@@ -1,8 +1,6 @@
 package com.example.smarttravelmode;
 
 import android.Manifest;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -10,8 +8,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.telephony.SmsManager;
-import android.telephony.SubscriptionManager;
 import android.text.util.Linkify;
 import android.widget.Toast;
 
@@ -29,7 +25,6 @@ import com.google.android.gms.location.Priority;
 import com.google.android.gms.location.SettingsClient;
 import com.google.android.gms.tasks.CancellationTokenSource;
 
-import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,52 +41,15 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
     private static final int PERMISSIONS_REQUEST_CODE = 1001;
     private static final int REQUEST_CHECK_SETTINGS = 1002;
 
-    private static final String ACTION_SMS_SENT = "com.example.smarttravelmode.SMS_SENT";
-    private static final String ACTION_SMS_DELIVERED = "com.example.smarttravelmode.SMS_DELIVERED";
-
     private static final String[] REQUIRED_PERMISSIONS = new String[]{
-            Manifest.permission.SEND_SMS,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.INTERNET
+            Manifest.permission.ACCESS_COARSE_LOCATION
     };
 
     private ActivityMainBinding binding;
     private ExecutorService executor;
     private AirplaneModeReceiver airplaneModeReceiver;
     private boolean isAirplaneReceiverRegistered = false;
-
-    private final BroadcastReceiver smsSentReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) {
-            int rc = getResultCode();
-            switch (rc) {
-                case RESULT_OK:
-                    Toast.makeText(MainActivity.this, "SMS sent", Toast.LENGTH_SHORT).show();
-                    break;
-                case SmsManager.RESULT_ERROR_GENERIC_FAILURE:
-                    Toast.makeText(MainActivity.this, "SMS: generic failure", Toast.LENGTH_LONG).show();
-                    break;
-                case SmsManager.RESULT_ERROR_NO_SERVICE:
-                    Toast.makeText(MainActivity.this, "SMS: no service", Toast.LENGTH_LONG).show();
-                    break;
-                case SmsManager.RESULT_ERROR_NULL_PDU:
-                    Toast.makeText(MainActivity.this, "SMS: null PDU", Toast.LENGTH_LONG).show();
-                    break;
-                case SmsManager.RESULT_ERROR_RADIO_OFF:
-                    Toast.makeText(MainActivity.this, "SMS: radio off", Toast.LENGTH_LONG).show();
-                    break;
-                default:
-                    Toast.makeText(MainActivity.this, "SMS result " + rc, Toast.LENGTH_SHORT).show();
-                    break;
-            }
-        }
-    };
-
-    private final BroadcastReceiver smsDeliveredReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) {
-            Toast.makeText(MainActivity.this, "SMS delivered", Toast.LENGTH_SHORT).show();
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -105,20 +63,6 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
         loadSettings();
         checkInitialAirplaneMode();
         requestAllPermissions();
-
-        // Register SENT/DELIVERED trackers with NOT_EXPORTED flag (unregister in onDestroy)
-        ContextCompat.registerReceiver(
-                this,
-                smsSentReceiver,
-                new IntentFilter(ACTION_SMS_SENT),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-        );
-        ContextCompat.registerReceiver(
-                this,
-                smsDeliveredReceiver,
-                new IntentFilter(ACTION_SMS_DELIVERED),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-        );
     }
 
     private void checkInitialAirplaneMode() {
@@ -211,18 +155,18 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
     public void onRequestPermissionsResult(int code, @NonNull String[] perms, @NonNull int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
         if (code == PERMISSIONS_REQUEST_CODE) {
-            boolean granted = true;
+            registerAirplaneReceiver();
+            boolean granted = false;
             for (int r : res) {
-                if (r != PackageManager.PERMISSION_GRANTED) {
-                    granted = false;
+                if (r == PackageManager.PERMISSION_GRANTED) {
+                    granted = true;
                     break;
                 }
             }
             if (granted) {
-                registerAirplaneReceiver();
-                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Location permission granted", Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Permissions required for flight notifications", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Location permission recommended for flight notifications", Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -402,43 +346,32 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
 
     // ---------- SMS / Email ----------
     private void safeSendSMS(String to, String text) {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
-            runOnUiThread(() -> ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.SEND_SMS}, PERMISSIONS_REQUEST_CODE));
-            return;
-        }
         sendSMS(to, text);
     }
 
-    private SmsManager smsForDefaultSub() {
-        int subId = SubscriptionManager.getDefaultSmsSubscriptionId();
-        if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-            return SmsManager.getSmsManagerForSubscriptionId(subId);
-        }
-        return SmsManager.getDefault();
-    }
-
     private void sendSMS(String to, String body) {
-        try {
-            SmsManager sms = smsForDefaultSub();
-
-            PendingIntent sentPI = PendingIntent.getBroadcast(
-                    this, 0, new Intent(ACTION_SMS_SENT), PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent deliveredPI = PendingIntent.getBroadcast(
-                    this, 0, new Intent(ACTION_SMS_DELIVERED), PendingIntent.FLAG_IMMUTABLE);
-
-            ArrayList<String> parts = sms.divideMessage(body);
-            ArrayList<PendingIntent> sentList = new ArrayList<>();
-            ArrayList<PendingIntent> deliveredList = new ArrayList<>();
-            for (int i = 0; i < parts.size(); i++) {
-                sentList.add(sentPI);
-                deliveredList.add(deliveredPI);
+        runOnUiThread(() -> {
+            try {
+                Intent smsIntent = new Intent(Intent.ACTION_SENDTO);
+                smsIntent.setData(Uri.parse("smsto:" + Uri.encode(to)));
+                smsIntent.putExtra("sms_body", body);
+                smsIntent.putExtra(Intent.EXTRA_TEXT, body);
+                smsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(smsIntent);
+            } catch (Exception e) {
+                // Fallback to generic SMS intent
+                try {
+                    Intent fallback = new Intent(Intent.ACTION_VIEW);
+                    fallback.setData(Uri.parse("sms:" + Uri.encode(to)));
+                    fallback.putExtra("sms_body", body);
+                    fallback.putExtra(Intent.EXTRA_TEXT, body);
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(fallback);
+                } catch (Exception ex) {
+                    Toast.makeText(this, "No SMS app found", Toast.LENGTH_SHORT).show();
+                }
             }
-
-            sms.sendMultipartTextMessage(to, null, parts, sentList, deliveredList);
-        } catch (Exception e) {
-            runOnUiThread(() -> Toast.makeText(this, "SMS failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
-        }
+        });
     }
 
     private void sendEmail(String to, String subject, String body) {
@@ -528,12 +461,6 @@ public class MainActivity extends AppCompatActivity implements AirplaneModeRecei
             isAirplaneReceiverRegistered = false;
         }
         AirplaneModeReceiver.clearGlobalListener(this);
-        try {
-            unregisterReceiver(smsSentReceiver);
-        } catch (Exception ignored) {}
-        try {
-            unregisterReceiver(smsDeliveredReceiver);
-        } catch (Exception ignored) {}
         if (executor != null && !executor.isShutdown()) {
             executor.shutdown();
         }
