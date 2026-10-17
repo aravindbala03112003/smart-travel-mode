@@ -11,7 +11,7 @@ Smart Travel Mode is an Android application designed for travelers who want peac
 ### Option 1: Direct APK Download
 - **Latest Release**: [v1.0.0](https://github.com/aravindbala03112003/smart-travel-mode/releases/tag/v1.0.0)
 - **Direct APK Download**: [Download Smart Travel Mode APK (v1.0.0)](https://github.com/aravindbala03112003/smart-travel-mode/releases/download/v1.0.0/app-release.apk)
-- **APK SHA-256**: `D3102BFED1718D6A7794567E9FC2D3C2AC1D339511816D2276C1B73C587EF92A`
+- **APK SHA-256**: `E979C5831CAA4C80E97C1CE578662A3E63A883540ACA60F2CACB91F8B49A39D3`
 
 ### Installation Steps on Android:
 1. Download `app-release.apk` on your Android phone using your browser.
